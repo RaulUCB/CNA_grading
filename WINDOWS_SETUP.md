@@ -1,6 +1,6 @@
-# CNA Grader Setup for Windows
+# CNA Writing Grader 1.0 — Windows Setup
 
-The grader visits classes, students, and pending writing activities. A local Ollama model suggests `Correto` when an answer is understandable and relevant, even if it has grammar mistakes; grammar corrections go in feedback. It suggests `Incorreto` when the response is not understandable or is irrelevant. The script asks for your CNA login at runtime and waits for your review and confirmation before submission.
+The grader visits classes, students, and pending writing activities. A local Ollama model suggests `Correto` when an answer is in English, understandable, and relevant, even if it has grammar mistakes; it suggests `Incorreto` for non-English, incomprehensible, or irrelevant responses. The script asks for your CNA login at runtime. Review each suggestion before submitting; the optional `a` choice enables automatic submission for the remainder of that run.
 
 ## Install prerequisites
 
@@ -30,7 +30,7 @@ If PowerShell blocks environment activation, run this once in that PowerShell wi
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to fill and submit the suggested grade in CNA. Press `n` to edit and submit manually, or `s` to skip without submitting. At the end, the program reports suggestions, submitted grades, manually graded activities, and skips.
+Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to submit the suggested grade in CNA. Press `a` to submit the current suggestion and automatically submit the remaining suggestions in that run, `n` to edit and submit manually, or `s` to skip without submitting. At the end, the program reports suggestions, submitted grades, manually graded activities, skipped activities, and non-editable activities.
 
 ## Notes
 
