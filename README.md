@@ -3,7 +3,7 @@
 A Windows-friendly Python tool that visits CNA writing activities and uses a local
 Ollama model to suggest a grade and short feedback. It requires an English response;
 answers in another language are suggested as `Incorrect`. English grammar mistakes
-alone do not make an otherwise understandable, relevant answer incorrect.
+alone do not make an otherwise understandable, relevant answer incorrect. THIS IS A TOOL FOR TEACHERS!
 
 ## Requirements
 
