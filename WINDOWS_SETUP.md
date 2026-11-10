@@ -30,7 +30,7 @@ If PowerShell blocks environment activation, run this once in that PowerShell wi
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to fill the proposed grade and feedback into CNA; review the populated fields in the browser and press Enter again to submit. Press `n` to edit and submit manually, or `s` to skip without submitting.
+Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to fill and submit the suggested grade in CNA. Press `n` to edit and submit manually, or `s` to skip without submitting. At the end, the program reports suggestions, submitted grades, manually graded activities, and skips.
 
 ## Notes
 

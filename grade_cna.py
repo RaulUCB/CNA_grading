@@ -101,7 +101,7 @@ def suggest_grade(prompt, answer):
     if not isinstance(understandable, bool) or not isinstance(relevant, bool):
         raise RuntimeError("The local model returned invalid assessment fields.")
 
-    grade = "Correct" if understandable and relevant else "Incorrect"
+    grade = decide_grade(understandable, relevant)
     feedback = suggestion.get("feedback", "")
     if not isinstance(feedback, str):
         raise RuntimeError("The local model returned invalid feedback.")
@@ -115,16 +115,19 @@ def suggest_grade(prompt, answer):
     return grade, feedback
 
 
+def decide_grade(understandable, relevant):
+    return "Correct" if understandable and relevant else "Incorrect"
+
+
 def apply_and_submit_suggestion(page, grade, feedback):
     radio_name = "Correto" if grade == "Correct" else "Incorreto"
     page.get_by_role("radio", name=radio_name).check()
     page.locator('textarea[placeholder="Adicione o texto aqui"]').fill(feedback)
-    input("Review the filled grade and feedback in the browser. Press Enter to submit, or Ctrl+C to stop... ")
     page.locator('button:has-text("Finalizar")').click()
     page.wait_for_timeout(1500)
 
 
-def grade_all_pending_for_student(page, student_url):
+def grade_all_pending_for_student(page, student_url, totals):
     page.goto(student_url)
     activity_links = []
 
@@ -138,19 +141,24 @@ def grade_all_pending_for_student(page, student_url):
         page.goto(activity_url)
         prompt, answer = get_activity_content(page)
         grade, feedback = suggest_grade(prompt, answer)
+        totals["suggestions"] += 1
         print(f"\nHomework: {activity_url}\nAssignment: {prompt}\nStudent response: {answer}")
         print(f"Suggested grade: {grade}\nSuggested feedback: {feedback}")
-        approval = input("Accept this suggestion? [y]es / [n]o / [s]kip: ").strip().lower()
+        approval = input("Submit this suggested grade? [y]es / [n]o, edit manually / [s]kip: ").strip().lower()
         if approval == "y":
             apply_and_submit_suggestion(page, grade, feedback)
+            totals["submitted"] += 1
+            print("Grade submitted.")
         elif approval == "n":
             print("Edit the grade and feedback manually in the browser, then submit it.")
             input("Press Enter when done to continue... ")
+            totals["manual"] += 1
         else:
             print("Skipped without submitting.")
+            totals["skipped"] += 1
 
 
-def iterate_classes(page):
+def iterate_classes(page, totals):
     class_links = []
     page.goto(CLASSES_URL)
 
@@ -180,18 +188,26 @@ def iterate_classes(page):
         if not student_links:
             print(f"No student links found at {students_url}")
         for student_url in student_links:
-            grade_all_pending_for_student(page, student_url)
+            grade_all_pending_for_student(page, student_url, totals)
 
 
 def main():
+    totals = {"suggestions": 0, "submitted": 0, "manual": 0, "skipped": 0}
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         page = browser.new_page(viewport={"width": 1440, "height": 1200})
 
         try:
             login(page)
-            iterate_classes(page)
-            input("Review pass finished. Press Enter to close the browser... ")
+            iterate_classes(page, totals)
+            print(
+                "\nGrading run complete: "
+                f"{totals['suggestions']} AI suggestions, "
+                f"{totals['submitted']} AI-suggested grades submitted, "
+                f"{totals['manual']} manually graded, "
+                f"{totals['skipped']} skipped."
+            )
+            input("Press Enter to close the browser... ")
         except Exception as error:
             print(f"The run stopped: {error}")
             input("The browser will stay open for inspection. Press Enter to close it... ")
