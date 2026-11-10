@@ -2,7 +2,8 @@ from getpass import getpass
 import json
 import os
 from urllib.request import Request, urlopen
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+import re
 
 from playwright.sync_api import sync_playwright
 
@@ -43,10 +44,11 @@ def login(page):
 def get_activity_content(page):
     answer = page.locator('textarea[disabled], textarea[readonly]').first.input_value()
     headings = [text.strip() for text in page.locator("h5").all_inner_texts()]
-    prompt = next(
-        (text for text in headings if text and text != "Resposta do aluno"),
-        "",
-    )
+    prompt_candidates = [
+        text for text in headings
+        if text and text.lower() not in {"resposta do aluno", "student answer"}
+    ]
+    prompt = max(prompt_candidates, key=len, default="")
     if not answer.strip() or not prompt:
         raise RuntimeError("Could not read the assignment prompt and student response.")
     return prompt, answer
@@ -54,13 +56,14 @@ def get_activity_content(page):
 
 def suggest_grade(prompt, answer):
     instructions = (
-        "You are assisting a teacher reviewing an English learner's writing. "
-        "Judge only whether the response is understandable and coherent as an answer. "
-        "Ignore grammar mistakes when deciding the grade: if it makes sense, use Correct. "
-        "If it does not make sense, is incoherent, or does not answer the task, use Incorrect. "
-        "Put any grammar mistakes and brief corrections in feedback. Do not use Partial. "
-        "Return only a JSON object with keys grade (Correct or Incorrect) and feedback (string). "
-        "Write feedback in simple, encouraging English."
+        "Review an English learner's answer to the assignment. Decide whether the answer "
+        "is understandable and coherent, and whether it is relevant to the assignment. "
+        "Grammar mistakes do not make an otherwise understandable, relevant answer wrong. "
+        "If the answer is not understandable or is irrelevant, briefly say why in feedback. "
+        "If it makes sense but has grammar mistakes, give brief corrections in feedback. "
+        "If there are no grammar mistakes, feedback may be an empty string. "
+        "Return JSON only with boolean fields understandable and relevant, and string field "
+        "feedback. Do not assign a grade."
     )
     payload = {
         "model": OLLAMA_MODEL,
@@ -70,6 +73,12 @@ def suggest_grade(prompt, answer):
         ),
         "format": "json",
         "stream": False,
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0,
+            "num_ctx": 2048,
+            "num_predict": 128,
+        },
     }
     request = Request(
         OLLAMA_URL,
@@ -78,7 +87,7 @@ def suggest_grade(prompt, answer):
         method="POST",
     )
     try:
-        with urlopen(request, timeout=180) as response:
+        with urlopen(request, timeout=600) as response:
             result = json.loads(response.read().decode("utf-8"))
         suggestion = json.loads(result["response"])
     except Exception as error:
@@ -87,13 +96,23 @@ def suggest_grade(prompt, answer):
             "Make sure Ollama is running and the model is installed."
         ) from error
 
-    grade = suggestion.get("grade")
-    if grade not in {"Correct", "Incorrect"}:
-        raise RuntimeError("The local model returned an invalid grade suggestion.")
-    feedback = suggestion.get("feedback")
-    if not isinstance(feedback, str) or not feedback.strip():
-        raise RuntimeError("The local model returned empty feedback.")
-    return grade, feedback.strip()
+    understandable = suggestion.get("understandable")
+    relevant = suggestion.get("relevant")
+    if not isinstance(understandable, bool) or not isinstance(relevant, bool):
+        raise RuntimeError("The local model returned invalid assessment fields.")
+
+    grade = "Correct" if understandable and relevant else "Incorrect"
+    feedback = suggestion.get("feedback", "")
+    if not isinstance(feedback, str):
+        raise RuntimeError("The local model returned invalid feedback.")
+    feedback = feedback.strip()
+    if not feedback:
+        feedback = (
+            "Your answer is clear and relevant. Well done."
+            if grade == "Correct"
+            else "Please write a clear answer that is relevant to the assignment."
+        )
+    return grade, feedback
 
 
 def apply_and_submit_suggestion(page, grade, feedback):
@@ -137,7 +156,8 @@ def iterate_classes(page):
 
     while True:
         for href in page.locator('a[href*="/learning/teacher/classes/"]').evaluate_all("(els) => els.map(el => el.href)"):
-            if "/learning/teacher/classes/" not in href:
+            path = urlparse(href).path
+            if not re.fullmatch(r"/learning/teacher/classes/\d+", path):
                 continue
             if href not in class_links:
                 class_links.append(href)
@@ -163,16 +183,21 @@ def iterate_classes(page):
             grade_all_pending_for_student(page, student_url)
 
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    page = browser.new_page(viewport={"width": 1440, "height": 1200})
+def main():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        page = browser.new_page(viewport={"width": 1440, "height": 1200})
 
-    try:
-        login(page)
-        iterate_classes(page)
-        input("Review pass finished. Press Enter to close the browser... ")
-    except Exception as error:
-        print(f"The run stopped: {error}")
-        input("The browser will stay open for inspection. Press Enter to close it... ")
-    finally:
-        browser.close()
+        try:
+            login(page)
+            iterate_classes(page)
+            input("Review pass finished. Press Enter to close the browser... ")
+        except Exception as error:
+            print(f"The run stopped: {error}")
+            input("The browser will stay open for inspection. Press Enter to close it... ")
+        finally:
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()

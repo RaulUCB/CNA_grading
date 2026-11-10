@@ -1,6 +1,6 @@
 # CNA Grader Setup for Windows
 
-This bundle contains the grader script, not the Python environment or AI model. The script asks for your CNA login at runtime; do not put credentials in the file. It proposes grades and feedback, but waits for your review and confirmation before submission.
+The grader visits classes, students, and pending writing activities. A local Ollama model suggests `Correto` when an answer is understandable and relevant, even if it has grammar mistakes; grammar corrections go in feedback. It suggests `Incorreto` when the response is not understandable or is irrelevant. The script asks for your CNA login at runtime and waits for your review and confirmation before submission.
 
 ## Install prerequisites
 
@@ -30,10 +30,10 @@ If PowerShell blocks environment activation, run this once in that PowerShell wi
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the grade and feedback in the terminal and browser; only accept it when you agree. Press `y` then Enter to fill in and submit, `n` to edit and submit manually, or `s` to skip.
+Keep Ollama running while the script runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to fill the proposed grade and feedback into CNA; review the populated fields in the browser and press Enter again to submit. Press `n` to edit and submit manually, or `s` to skip without submitting.
 
 ## Notes
 
-- The model runs locally through Ollama. A larger model or slower computer can make each suggestion take longer.
+- The model runs locally through Ollama. Model speed and grading quality depend on the computer and model. The Kali test machine was too slow to finish a sample inference, so test the model on this Windows computer with sample answers before relying on suggestions.
 - The script does not copy the `.venv` or Ollama model; install them on the Windows computer using these steps.
-- Do not use the script unattended: review each suggested grade before confirming submission.
+- Do not use the script unattended: AI suggestions can be wrong. Review each suggested grade and feedback before confirming submission.
