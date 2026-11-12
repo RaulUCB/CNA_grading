@@ -4,6 +4,7 @@ A Windows app that visits CNA writing activities and uses a local Ollama model t
 suggest a grade and short feedback. It requires an English response; answers in
 another language are suggested as `Incorrect`. English grammar mistakes alone do
 not make an otherwise understandable, relevant answer incorrect.
+This is a tool for teachers.
 
 ## Run the standalone Windows app
 
