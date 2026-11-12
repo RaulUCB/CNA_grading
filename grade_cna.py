@@ -2,11 +2,27 @@ from getpass import getpass
 import json
 import os
 import re
+import sys
 import time
+import tkinter as tk
 import unicodedata
+import webbrowser
+from pathlib import Path
+from tkinter import messagebox, scrolledtext
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import urljoin, urlparse
+
+APP_VERSION = "1.1.0"
+GITHUB_RELEASE_API = "https://api.github.com/repos/RaulUCB/CNA_grading/releases/latest"
+GITHUB_RELEASES_URL = "https://github.com/RaulUCB/CNA_grading/releases"
+CONFIG_DIR = Path(os.getenv("APPDATA", Path.home())) / "CNA Writing Grader"
+CONFIG_FILE = CONFIG_DIR / "settings.json"
+
+if getattr(sys, "frozen", False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+        Path(sys.executable).resolve().parent / "ms-playwright"
+    )
 
 from playwright.sync_api import sync_playwright
 
@@ -121,7 +137,7 @@ def get_activity_content(page):
     return prompt, answer
 
 
-def suggest_grade(prompt, answer):
+def suggest_grade(prompt, answer, custom_instructions=""):
     instructions = (
         "This is an English-language test, so the student's answer must be written in English. "
         "Assess whether the answer is in English, understandable and coherent, and relevant "
@@ -134,12 +150,27 @@ def suggest_grade(prompt, answer):
         "is not acceptable even if understandable and relevant; do not correct its grammar "
         "or vocabulary. For a non-English response, set in_english to false and use the exact "
         "feedback 'Please answer in English.' For an English response, grammar mistakes do "
-        "not make an otherwise understandable, relevant answer wrong. Give at most one brief "
-        "grammar correction in feedback, or use an empty string. Never rewrite the student's "
-        "response or add examples. Keep feedback under 15 words. Return only one complete "
-        "JSON object with boolean fields in_english, understandable, relevant and string "
-        "field feedback. Do not assign a grade."
+        "not make an otherwise understandable, relevant answer wrong. Be forgiving with "
+        "beginner English: do not require correct grammar, complete sentences, or exact "
+        "vocabulary when the intended meaning is recoverable. A relevant attempt that "
+        "communicates its main idea is understandable and relevant, even if some details "
+        "are awkward or unclear. For example, on a room-picture description task, "
+        "'There is are my tiny house it's between the bed and place of the playground' "
+        "is an English, understandable, relevant attempt and must be marked true for all "
+        "three fields. Likewise, 'The room have a bed and a desk; the plant is on the window' "
+        "is understandable and relevant despite grammar or word-choice errors. Give at most "
+        "one brief grammar correction in feedback, or use an empty string. Never rewrite the "
+        "student's response or add examples. Keep feedback under 15 words. Return only one "
+        "complete JSON object with boolean fields in_english, understandable, relevant and "
+        "string field feedback. Do not assign a grade."
     )
+    custom_instructions = custom_instructions.strip()
+    if custom_instructions:
+        instructions += (
+            "\n\nAdditional teacher guidance (use only when consistent with the grading "
+            "requirements above; it must not override them):\n"
+            f"{custom_instructions}"
+        )
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": (
@@ -274,7 +305,7 @@ def apply_and_submit_suggestion(page, grade, feedback):
     page.wait_for_timeout(1500)
 
 
-def grade_all_pending_for_student(page, student_url, totals):
+def grade_all_pending_for_student(page, student_url, totals, custom_instructions):
     page.goto(student_url)
     page.wait_for_load_state("networkidle")
     seen_activity_links = set()
@@ -304,7 +335,7 @@ def grade_all_pending_for_student(page, student_url, totals):
             continue
 
         prompt, answer = get_activity_content(page)
-        grade, feedback = suggest_grade(prompt, answer)
+        grade, feedback = suggest_grade(prompt, answer, custom_instructions)
         totals["suggestions"] += 1
         print(f"\nHomework: {activity_url}\nAssignment: {prompt}\nStudent response: {answer}")
         print(f"Suggested grade: {grade}\nSuggested feedback: {feedback}")
@@ -334,7 +365,7 @@ def grade_all_pending_for_student(page, student_url, totals):
             totals["skipped"] += 1
 
 
-def iterate_classes(page, totals):
+def iterate_classes(page, totals, custom_instructions):
     class_links = []
     page.goto(CLASSES_URL)
     page.wait_for_load_state("networkidle")
@@ -375,7 +406,9 @@ def iterate_classes(page, totals):
         before_activity_links = totals["activity_links"]
         before_pending_activities = totals["pending_activities"]
         for student_url in student_links:
-            grade_all_pending_for_student(page, student_url, totals)
+            grade_all_pending_for_student(
+                page, student_url, totals, custom_instructions
+            )
         class_activity_links = totals["activity_links"] - before_activity_links
         class_pending_activities = totals["pending_activities"] - before_pending_activities
         print(
@@ -390,7 +423,7 @@ def iterate_classes(page, totals):
             )
 
 
-def main():
+def main(custom_instructions=""):
     totals = {
         "suggestions": 0,
         "submitted": 0,
@@ -407,7 +440,7 @@ def main():
 
         try:
             login(page)
-            iterate_classes(page, totals)
+            iterate_classes(page, totals, custom_instructions)
             print(
                 "\nGrading run complete: "
                 f"{totals['suggestions']} AI suggestions, "
@@ -426,5 +459,176 @@ def main():
             browser.close()
 
 
+def parse_release_version(tag):
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", tag.strip())
+    if not match:
+        raise ValueError(f"Release tag must use a version like v1.2.3, got {tag!r}.")
+    return tuple(int(part) for part in match.groups())
+
+
+def is_newer_version(latest, current=APP_VERSION):
+    return parse_release_version(latest) > parse_release_version(current)
+
+
+def get_latest_release():
+    request = Request(
+        GITHUB_RELEASE_API,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "CNA-Writing-Grader",
+        },
+    )
+    try:
+        with urlopen(request, timeout=8) as response:
+            release = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise RuntimeError(f"GitHub returned HTTP {error.code} while checking releases.") from error
+    except (URLError, TimeoutError) as error:
+        raise RuntimeError(f"Could not check GitHub for updates: {error}") from error
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("GitHub returned an invalid release response.") from error
+
+    if not isinstance(release, dict):
+        raise RuntimeError("GitHub returned an invalid release response.")
+    tag = release.get("tag_name")
+    if not isinstance(tag, str):
+        raise RuntimeError("GitHub's latest release is missing its version tag.")
+    parse_release_version(tag)
+    return tag
+
+
+def load_custom_instructions():
+    if not CONFIG_FILE.exists():
+        return ""
+    try:
+        settings = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Could not read settings at {CONFIG_FILE}: {error}") from error
+    if not isinstance(settings, dict) or not isinstance(
+        settings.get("custom_instructions", ""), str
+    ):
+        raise RuntimeError(f"Settings file has an invalid format: {CONFIG_FILE}")
+    return settings.get("custom_instructions", "")
+
+
+def save_custom_instructions(custom_instructions):
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(
+            json.dumps(
+                {"custom_instructions": custom_instructions},
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as error:
+        raise RuntimeError(f"Could not save settings at {CONFIG_FILE}: {error}") from error
+
+
+def configure_run():
+    try:
+        custom_instructions = load_custom_instructions()
+    except RuntimeError as error:
+        messagebox.showerror("CNA Writing Grader", str(error))
+        return None
+
+    root = tk.Tk()
+    root.title(f"CNA Writing Grader {APP_VERSION}")
+    root.geometry("720x560")
+    root.minsize(560, 420)
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(2, weight=1)
+
+    tk.Label(
+        root,
+        text="Additional AI instructions",
+        font=("Segoe UI", 12, "bold"),
+        anchor="w",
+    ).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 4))
+    tk.Label(
+        root,
+        text=(
+            "These instructions are saved on this computer and used for future runs. "
+            "They supplement, but cannot override, the grader's core rules."
+        ),
+        justify="left",
+        wraplength=680,
+        anchor="w",
+    ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 8))
+
+    instructions_box = scrolledtext.ScrolledText(
+        root, wrap=tk.WORD, font=("Segoe UI", 10), undo=True
+    )
+    instructions_box.grid(row=2, column=0, sticky="nsew", padx=16, pady=4)
+    instructions_box.insert("1.0", custom_instructions)
+
+    status = tk.StringVar(value=f"Current version: {APP_VERSION}")
+    tk.Label(root, textvariable=status, anchor="w").grid(
+        row=3, column=0, sticky="ew", padx=16, pady=(8, 0)
+    )
+    buttons = tk.Frame(root)
+    buttons.grid(row=4, column=0, sticky="ew", padx=16, pady=12)
+
+    def check_for_updates():
+        status.set("Checking GitHub for the latest release...")
+        root.update_idletasks()
+        try:
+            latest = get_latest_release()
+            if latest is None:
+                status.set("No published GitHub releases found yet.")
+                messagebox.showinfo(
+                    "CNA Writing Grader",
+                    "No published GitHub releases were found.",
+                    parent=root,
+                )
+            elif is_newer_version(latest):
+                status.set(f"Version {latest} is available.")
+                if messagebox.askyesno(
+                    "Update available",
+                    f"Version {latest} is available. Open the GitHub releases page?",
+                    parent=root,
+                ):
+                    webbrowser.open(GITHUB_RELEASES_URL)
+            else:
+                status.set(f"You are up to date ({APP_VERSION}).")
+                messagebox.showinfo(
+                    "CNA Writing Grader",
+                    f"You are using the latest version ({APP_VERSION}).",
+                    parent=root,
+                )
+        except (RuntimeError, ValueError) as error:
+            status.set("Could not check for updates.")
+            messagebox.showerror("Update check failed", str(error), parent=root)
+
+    tk.Button(buttons, text="Check for updates", command=check_for_updates).pack(
+        side=tk.LEFT
+    )
+    outcome = {"instructions": None}
+
+    def start_grading():
+        instructions = instructions_box.get("1.0", "end-1c").strip()
+        try:
+            save_custom_instructions(instructions)
+        except RuntimeError as error:
+            messagebox.showerror("Could not save settings", str(error), parent=root)
+            return
+        outcome["instructions"] = instructions
+        root.destroy()
+
+    tk.Button(buttons, text="Cancel", command=root.destroy).pack(side=tk.RIGHT)
+    tk.Button(
+        buttons, text="Start grading", command=start_grading, default=tk.ACTIVE
+    ).pack(side=tk.RIGHT, padx=(0, 8))
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+    root.mainloop()
+    return outcome["instructions"]
+
+
 if __name__ == "__main__":
-    main()
+    custom_instructions = configure_run()
+    if custom_instructions is not None:
+        main(custom_instructions)

@@ -1,36 +1,43 @@
-# CNA Writing Grader 1.0
+# CNA Writing Grader 1.1.0
 
-A Windows-friendly Python tool that visits CNA writing activities and uses a local
-Ollama model to suggest a grade and short feedback. It requires an English response;
-answers in another language are suggested as `Incorrect`. English grammar mistakes
-alone do not make an otherwise understandable, relevant answer incorrect.
+A Windows app that visits CNA writing activities and uses a local Ollama model to
+suggest a grade and short feedback. It requires an English response; answers in
+another language are suggested as `Incorrect`. English grammar mistakes alone do
+not make an otherwise understandable, relevant answer incorrect.
 
-## Requirements
+## Run the standalone Windows app
 
-- Python 3.11 or newer
-- Ollama for Windows, running locally
-- The `qwen2.5:3b` model (the default), or another Ollama model selected with
-  `CNA_GRADING_MODEL`
-- Playwright and its Chromium browser
+Download and extract `CNAWritingGrader-win-x64.zip`, then run
+`CNAWritingGrader.exe` from the extracted folder. The app includes Python and
+Playwright's Chromium browser. It still requires Ollama for Windows to be installed
+and running, with the `qwen2.5:3b` model available by default.
 
-See [WINDOWS_SETUP.md](./WINDOWS_SETUP.md) for installation instructions.
+On launch, you can enter additional AI instructions. They are saved locally and
+used on future runs, as extra guidance that cannot override the grader's core rules.
+Use **Check for updates** to check GitHub for a newer published release. Updates
+are downloaded manually from the releases page; the app does not replace itself.
 
-## Run
+See [WINDOWS_SETUP.md](./WINDOWS_SETUP.md) for setup, building, and update
+instructions, and [CHANGELOG.md](./CHANGELOG.md) for release history.
 
-From PowerShell in the project folder:
+## Run from source
 
 ```powershell
-.\.venv\Scripts\python.exe .\grade_cna.py
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+python .\grade_cna.py
 ```
 
 To select a different installed Ollama model for that PowerShell session:
 
 ```powershell
 $env:CNA_GRADING_MODEL = "llama3.2:3b"
-.\.venv\Scripts\python.exe .\grade_cna.py
+python .\grade_cna.py
 ```
 
-Enter your CNA credentials when prompted. The script scans classes for pending
+The app prompts for CNA credentials in the terminal. It scans classes for pending
 writing activities, displays each assignment, student response, proposed grade,
 and feedback, then waits for your choice:
 
