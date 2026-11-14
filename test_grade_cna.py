@@ -29,6 +29,72 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertIsNone(grade_cna.get_latest_release())
 
 
+class OllamaModelFallbackTests(unittest.TestCase):
+    @staticmethod
+    def make_response(data):
+        response = unittest.mock.MagicMock()
+        response.__enter__.return_value = io.BytesIO(
+            json.dumps(data).encode("utf-8")
+        )
+        return response
+
+    @patch("grade_cna.urlopen")
+    def test_missing_default_model_falls_back_and_reuses_installed_model(self, urlopen):
+        model_response = {
+            "response": json.dumps(
+                {
+                    "in_english": True,
+                    "understandable": True,
+                    "relevant": True,
+                    "feedback": "",
+                }
+            )
+        }
+        urlopen.side_effect = [
+            HTTPError(
+                grade_cna.OLLAMA_URL,
+                404,
+                "Not Found",
+                None,
+                io.BytesIO(b'{"error":"model not found"}'),
+            ),
+            self.make_response({"models": [{"name": "llama3.2:3b"}]}),
+            self.make_response(model_response),
+            self.make_response(model_response),
+        ]
+
+        with (
+            patch.object(grade_cna, "ACTIVE_OLLAMA_MODEL", grade_cna.OLLAMA_MODEL),
+            patch("builtins.print"),
+        ):
+            first_result = grade_cna.suggest_grade(
+                "Describe your classroom.", "I like my classroom."
+            )
+            second_result = grade_cna.suggest_grade(
+                "Describe your classroom.", "I like my classroom."
+            )
+
+        self.assertEqual(first_result, ("Correct", "Your answer is clear and relevant. Well done."))
+        self.assertEqual(second_result, first_result)
+        fallback_request = urlopen.call_args_list[2].args[0]
+        second_request = urlopen.call_args_list[3].args[0]
+        self.assertEqual(
+            json.loads(fallback_request.data.decode("utf-8"))["model"],
+            "llama3.2:3b",
+        )
+        self.assertEqual(
+            json.loads(second_request.data.decode("utf-8"))["model"],
+            "llama3.2:3b",
+        )
+
+    @patch("grade_cna.urlopen")
+    def test_no_other_installed_models_returns_actionable_error(self, urlopen):
+        urlopen.return_value = self.make_response({"models": []})
+
+        with self.assertRaisesRegex(RuntimeError, "ollama pull"):
+            grade_cna.get_fallback_ollama_model("qwen2.5:3b")
+
+
 class CustomInstructionTests(unittest.TestCase):
     @patch("grade_cna.urlopen")
     def test_custom_instructions_are_added_to_local_model_prompt(self, urlopen):

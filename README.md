@@ -11,7 +11,11 @@ This is a tool for teachers.
 Download and extract `CNAWritingGrader-win-x64.zip`, then run
 `CNAWritingGrader.exe` from the extracted folder. The app includes Python and
 Playwright's Chromium browser. It still requires Ollama for Windows to be installed
-and running, with the `qwen2.5:3b` model available by default.
+and running, and at least one Ollama model installed. Install Ollama from the
+[official Windows download page](https://ollama.com/download/windows), then run
+`ollama pull qwen2.5:3b` in PowerShell to install the recommended model. The app
+tries `qwen2.5:3b` by default; if it is missing, it retries with the first
+installed model Ollama reports.
 
 On launch, you can enter additional AI instructions. They are saved locally and
 used on future runs, as extra guidance that cannot override the grader's core rules.
@@ -31,11 +35,14 @@ python -m playwright install chromium
 python .\grade_cna.py
 ```
 
-To select a different installed Ollama model for that PowerShell session:
+To select a specific installed Ollama model for that PowerShell session (the same
+setting works when launching the standalone EXE):
 
 ```powershell
 $env:CNA_GRADING_MODEL = "llama3.2:3b"
 python .\grade_cna.py
+# Or, when launching the standalone app:
+.\CNAWritingGrader.exe
 ```
 
 The app prompts for CNA credentials in the terminal. It scans classes for pending

@@ -29,7 +29,9 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://app.cna.com.br"
 CLASSES_URL = f"{BASE_URL}/learning/teacher/classes"
 OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 OLLAMA_MODEL = os.getenv("CNA_GRADING_MODEL", "qwen2.5:3b")
+ACTIVE_OLLAMA_MODEL = OLLAMA_MODEL
 ENGLISH_MARKERS = {
     "a", "about", "after", "all", "am", "an", "and", "are", "as", "at", "be",
     "because", "been", "before", "but", "by", "can", "did", "do", "for", "from",
@@ -137,7 +139,58 @@ def get_activity_content(page):
     return prompt, answer
 
 
+def get_fallback_ollama_model(unavailable_model):
+    request = Request(OLLAMA_TAGS_URL)
+    try:
+        with urlopen(request, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"Could not list installed Ollama models: HTTP {error.code}: "
+            f"{details[:500] or error.reason}"
+        ) from error
+    except (URLError, TimeoutError) as error:
+        raise RuntimeError(
+            f"Could not list installed Ollama models at {OLLAMA_TAGS_URL}: {error}"
+        ) from error
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("Ollama returned an invalid installed-model list.") from error
+
+    if not isinstance(result, dict) or not isinstance(result.get("models"), list):
+        raise RuntimeError("Ollama returned an invalid installed-model list.")
+
+    for model in result["models"]:
+        if not isinstance(model, dict):
+            continue
+        name = model.get("name") or model.get("model")
+        if isinstance(name, str) and name.strip() and name != unavailable_model:
+            return name
+
+    raise RuntimeError(
+        "No other installed Ollama models were found. "
+        f"Install one with `ollama pull {unavailable_model}` and try again."
+    )
+
+
+def is_missing_ollama_model(error, details):
+    if error.code != 404:
+        return False
+    try:
+        response = json.loads(details)
+    except json.JSONDecodeError:
+        return False
+    message = response.get("error") if isinstance(response, dict) else None
+    return (
+        isinstance(message, str)
+        and "model" in message.casefold()
+        and "not found" in message.casefold()
+    )
+
+
 def suggest_grade(prompt, answer, custom_instructions=""):
+    global ACTIVE_OLLAMA_MODEL
+
     instructions = (
         "This is an English-language test, so the student's answer must be written in English. "
         "Assess whether the answer is in English, understandable and coherent, and relevant "
@@ -172,7 +225,7 @@ def suggest_grade(prompt, answer, custom_instructions=""):
             f"{custom_instructions}"
         )
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": ACTIVE_OLLAMA_MODEL,
         "prompt": (
             f"{instructions}\n\nAssignment:\n{prompt}\n\n"
             f"Student response:\n{answer}"
@@ -186,34 +239,54 @@ def suggest_grade(prompt, answer, custom_instructions=""):
             "num_predict": 256,
         },
     }
-    request = Request(
-        OLLAMA_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    active_model = ACTIVE_OLLAMA_MODEL
+    fallback_attempted = False
+    server_retries = 0
     result = None
-    for attempt in range(2):
+    while True:
+        payload["model"] = active_model
+        request = Request(
+            OLLAMA_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         try:
             with urlopen(request, timeout=600) as response:
                 result = json.loads(response.read().decode("utf-8"))
             break
         except HTTPError as error:
             details = error.read().decode("utf-8", errors="replace").strip()
-            if error.code >= 500 and attempt == 0:
+            if error.code >= 500 and server_retries == 0:
+                server_retries += 1
                 time.sleep(2)
                 continue
+            if (
+                not fallback_attempted
+                and is_missing_ollama_model(error, details)
+            ):
+                fallback_model = get_fallback_ollama_model(active_model)
+                print(
+                    f"Ollama model {active_model} is unavailable; "
+                    f"retrying with installed model {fallback_model}."
+                )
+                active_model = fallback_model
+                ACTIVE_OLLAMA_MODEL = active_model
+                fallback_attempted = True
+                server_retries = 0
+                continue
             raise RuntimeError(
-                f"Ollama returned HTTP {error.code} for model {OLLAMA_MODEL}: "
+                f"Ollama returned HTTP {error.code} for model {active_model}: "
                 f"{details[:500] or error.reason}"
             ) from error
         except (URLError, TimeoutError) as error:
-            if attempt == 0:
+            if server_retries == 0:
+                server_retries += 1
                 time.sleep(2)
                 continue
             raise RuntimeError(
                 f"Could not connect to Ollama at {OLLAMA_URL} for model "
-                f"{OLLAMA_MODEL}: {error}"
+                f"{active_model}: {error}"
             ) from error
 
     if not isinstance(result, dict) or not isinstance(result.get("response"), str):
@@ -222,7 +295,7 @@ def suggest_grade(prompt, answer, custom_instructions=""):
         suggestion = json.loads(result["response"])
     except json.JSONDecodeError as error:
         raise RuntimeError(
-            f"Ollama returned invalid JSON for model {OLLAMA_MODEL}: "
+            f"Ollama returned invalid JSON for model {active_model}: "
             f"{result['response'][:500]}"
         ) from error
 

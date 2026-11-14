@@ -4,16 +4,39 @@ The grader visits classes, students, and pending writing activities. A local Oll
 
 ## Use the standalone app
 
-1. Install Ollama for Windows and open the Ollama app.
-2. In PowerShell, download the default model:
+The app ZIP does not include Ollama or an AI model. Install Ollama separately:
+
+1. Download the Windows installer from the [official Ollama download page](https://ollama.com/download/windows).
+2. Run `OllamaSetup.exe` and follow the installer. Open or leave the Ollama app
+   running while you use the grader.
+3. Open PowerShell and install the recommended model:
 
 ```powershell
 ollama pull qwen2.5:3b
 ```
 
-3. Download and extract `CNAWritingGrader-win-x64.zip`.
-4. Run `CNAWritingGrader.exe` from the extracted `CNAWritingGrader` folder. Keep the
-   whole folder together; it contains the app runtime and Chromium browser.
+   The model download is required if you do not already have an Ollama model
+   installed. The grader defaults to `qwen2.5:3b`; if that model is missing but
+   another model is installed, it automatically retries with the first installed
+   model. For consistent results, install and use the recommended model.
+4. Download and extract `CNAWritingGrader-win-x64.zip`.
+5. Run `CNAWritingGrader.exe` from the extracted `CNAWritingGrader` folder. Keep
+   the whole folder together; it contains the app runtime and Chromium browser.
+
+The grader opens a console for CNA login and activity review. For each suggestion,
+press `y` to submit it, `a` to submit it and automatically approve the rest of the
+run, `n` to grade manually in the browser, or `s` to skip. Review every suggestion;
+AI grades can be wrong.
+
+   If `qwen2.5:3b` is not installed, the app automatically retries with the first
+   model Ollama reports as installed. It prints the selected fallback model in the
+   console. To force a particular installed model, set `CNA_GRADING_MODEL` in
+   PowerShell before launching the EXE, for example:
+
+   ```powershell
+   $env:CNA_GRADING_MODEL = "llama3.2:3b"
+   .\CNAWritingGrader.exe
+   ```
 
 At startup, enter optional additional instructions for the AI. They are saved in
 `%APPDATA%\CNA Writing Grader\settings.json` and used in future runs. These
@@ -51,11 +74,18 @@ If PowerShell blocks environment activation, run this once in that PowerShell wi
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Keep Ollama running while the app runs. Log in when prompted. For each AI suggestion, review the assignment, response, grade, and feedback in the terminal. Press `y` then Enter to submit the suggested grade in CNA. Press `a` to submit the current suggestion and automatically submit the remaining suggestions in that run, `n` to edit and submit manually, or `s` to skip without submitting. At the end, the program reports suggestions, submitted grades, manually graded activities, skipped activities, and non-editable activities.
+Keep Ollama running while the app runs. Log in when prompted. For each AI
+suggestion, review the assignment, response, grade, and feedback in the terminal.
+Press `y` then Enter to submit the suggested grade in CNA. Press `a` to submit
+the current suggestion and automatically submit the remaining suggestions in that
+run, `n` to edit and submit manually, or `s` to skip without submitting. At the
+end, the program reports suggestions, submitted grades, manually graded
+activities, skipped activities, and non-editable activities.
 
 ## Notes
 
-- The model runs locally through Ollama; it is not included in the app. Model speed
-  and grading quality depend on the computer and model.
+- Ollama and its models are installed separately; neither is included in the app.
+  Models run locally. Their speed and grading quality depend on the computer and
+  selected model.
 - Do not use the app unattended: AI suggestions can be wrong. Review each suggested
   grade and feedback before confirming submission.
